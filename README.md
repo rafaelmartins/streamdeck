@@ -23,6 +23,7 @@ A pure Go library for interacting with Elgato Stream Deck devices. This library 
 | Model | Product ID | Keys | Touch Points | Dials | Info Bar | Touch Strip |
 |-------|------------|------|--------------|-------|----------|-------------|
 | Stream Deck Mini | 0x0063 | 6 | ❌ | ❌ | ❌ | ❌ |
+| Stream Deck V2 | 0x006d | 15 | ❌ | ❌ | ❌ | ❌ |
 | Stream Deck MK.2 | 0x0080 | 15 | ❌ | ❌ | ❌ | ❌ |
 | Stream Deck Neo | 0x009a | 8 | 2 | ❌ | ✅ | ❌ |
 
@@ -32,7 +33,6 @@ The following devices are not yet supported, but there's ongoing work to support
 
 | Model | Product ID | Keys | Touch Points | Dials | Info Bar | Touch Strip |
 |-------|------------|------|--------------|-------|----------|-------------|
-| Stream Deck | 0x0060 | 15 | ❌ | ❌ | ❌ | ❌ |
 | Stream Deck Plus | 0x0084 | 8 | ❌ | 4 | ❌ | ✅ |
 
 Supporting additional models would require hardware access for the library maintainer. Adding support based purely on data reverse-engineered from other libraries is not an option. If you have the means to support adding more devices, please [contact the maintainer](https://rafaelmartins.com/) for additional information.

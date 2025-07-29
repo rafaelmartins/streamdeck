@@ -35,7 +35,7 @@ type model struct {
 	firmwareVersion       func(dev *usbhid.Device) (string, error)
 }
 
-var models = map[uint16]model{
+var models = map[uint16]*model{
 	0x0063: {
 		id:                "mini",
 		keyStart:          0,
@@ -178,22 +178,35 @@ var models = map[uint16]model{
 	},
 }
 
+var modelAliases = map[uint16]uint16{
+	0x006d: 0x0080,
+}
+
 func getModel(dev *usbhid.Device) (*model, error) {
 	if dev.VendorId() != elgatoVendorID {
 		return nil, fmt.Errorf("%w: not an Elgato device: %04x", ErrDeviceEnumerationFailed, dev.VendorId())
 	}
 
-	md, found := models[dev.ProductId()]
+	id := dev.ProductId()
+	if ma, found := modelAliases[id]; found {
+		id = ma
+	}
+
+	md, found := models[id]
 	if !found {
 		return nil, fmt.Errorf("%w: device not supported: %04x:%04x", ErrDeviceEnumerationFailed, dev.VendorId(), dev.ProductId())
 	}
-	return &md, nil
+	return md, nil
 }
 
 func enumerateFunc(dev *usbhid.Device) bool {
 	if dev.VendorId() != elgatoVendorID {
 		return false
 	}
-	_, found := models[dev.ProductId()]
+	id := dev.ProductId()
+	if ma, found := modelAliases[id]; found {
+		id = ma
+	}
+	_, found := models[id]
 	return found
 }
