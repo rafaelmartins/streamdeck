@@ -2,6 +2,7 @@ package streamdeck
 
 import (
 	"fmt"
+	"image"
 	"log"
 	"sync"
 	"time"
@@ -158,22 +159,208 @@ func (id TouchPointID) String() string {
 }
 
 // Elgato Stream Deck touch point identifiers. These constants represent the
-// touch points on the device, numbered from 1 to 2 depending on the
-// supported models.
+// touch points on the device, depending on the supported models.
 const (
 	TOUCH_POINT_1 TouchPointID = iota + 1
 	TOUCH_POINT_2
 )
 
+// DialSwitchHandlerError represents an error returned by a dial switch
+// handler including the dial identifier.
+type DialHandlerError struct {
+	DialID DialID
+	Err    error
+}
+
+// Error returns a string representation of a dial handler error.
+func (b DialHandlerError) Error() string {
+	return fmt.Sprintf("%s [%s]", b.Err, b.DialID)
+}
+
+// Unwrap returns the underlying dial handler error.
+func (b DialHandlerError) Unwrap() error {
+	return b.Err
+}
+
+// DialSwitchHandler represents a callback function that is called when a
+// dial switch is activated. It receives the Device and Dial instances as
+// parameters.
+type DialSwitchHandler func(d *Device, di *Dial) error
+
+// DialRotateHandler represents a callback function that is called when a
+// dial is rotated. It receives the Device, the Dial instance and the rotation
+// delta as parameters.
+type DialRotateHandler func(d *Device, di *Dial, delta int8) error
+
+// Dial represents a rotative encoder with switch available on some Elgato
+// Stream Deck devices.
+type Dial struct {
+	id             DialID
+	switchHandlers []DialSwitchHandler
+	rotateHandlers []DialRotateHandler
+	input          *input
+}
+
+func (d *Dial) addSwitchHandler(h DialSwitchHandler) {
+	if h == nil || d.input == nil {
+		return
+	}
+
+	d.input.mtx.Lock()
+	d.switchHandlers = append(d.switchHandlers, h)
+	d.input.mtx.Unlock()
+}
+
+func (d *Dial) addRotateHandler(h DialRotateHandler) {
+	if h == nil || d.input == nil {
+		return
+	}
+
+	d.input.mtx.Lock()
+	d.rotateHandlers = append(d.rotateHandlers, h)
+	d.input.mtx.Unlock()
+}
+
+// WaitForRelease blocks until the dial switch is released and returns the
+// duration the dial switch was held closed. This method should be called from
+// within a DialSwitchHandler.
+func (d *Dial) WaitForRelease() time.Duration {
+	<-d.input.channel
+	return d.input.duration
+}
+
+// GetID returns the DialID identifier for this dial.
+func (d *Dial) GetID() DialID {
+	return d.id
+}
+
+// String returns a string representation of the Dial.
+func (d *Dial) String() string {
+	return d.id.String()
+}
+
+// DialID represents a physical Elgato Stream Deck device dial.
+type DialID byte
+
+// String returns a string representation of the DialID.
+func (id DialID) String() string {
+	return fmt.Sprintf("DIAL_%d", id)
+}
+
+// Elgato Stream Deck dial identifiers. These constants represent the
+// dials on the device depending on the supported models.
+const (
+	DIAL_1 DialID = iota + 1
+	DIAL_2
+	DIAL_3
+	DIAL_4
+)
+
+// TouchStripTouchType represents a touch strip touch type
+type TouchStripTouchType byte
+
+// String returns a string representation of the TouchStripTouchType.
+func (t TouchStripTouchType) String() string {
+	switch t {
+	case TOUCH_STRIP_TOUCH_TYPE_SHORT:
+		return "TOUCH_STRIP_TOUCH_TYPE_SHORT"
+	case TOUCH_STRIP_TOUCH_TYPE_LONG:
+		return "TOUCH_STRIP_TOUCH_TYPE_LONG"
+	default:
+		return ""
+	}
+}
+
+// Elgato Stream Deck touch strip touch types. These constants represent the
+// duration while the touch strip was touched.
+const (
+	TOUCH_STRIP_TOUCH_TYPE_SHORT TouchStripTouchType = iota + 1
+	TOUCH_STRIP_TOUCH_TYPE_LONG
+)
+
+// TouchStripTouchHandlerError represents an error returned by a touch strip
+// touch handler including the touch type and touched point.
+type TouchStripTouchHandlerError struct {
+	Type  TouchStripTouchType
+	Point image.Point
+	Err   error
+}
+
+// Error returns a string representation of a touch strip touch handler error.
+func (b TouchStripTouchHandlerError) Error() string {
+	return fmt.Sprintf("%s [%s: %s]", b.Err, b.Type, b.Point)
+}
+
+// Unwrap returns the underlying touch strip touch handler error.
+func (b TouchStripTouchHandlerError) Unwrap() error {
+	return b.Err
+}
+
+// TouchStripSwipeHandlerError represents an error returned by a touch strip
+// swipe handler including the swipe origin and destination points.
+type TouchStripSwipeHandlerError struct {
+	Origin      image.Point
+	Destination image.Point
+	Err         error
+}
+
+// Error returns a string representation of a touch strip swipe handler error.
+func (b TouchStripSwipeHandlerError) Error() string {
+	return fmt.Sprintf("%s [%s %s]", b.Err, b.Origin, b.Destination)
+}
+
+// Unwrap returns the underlying touch strip swipe handler error.
+func (b TouchStripSwipeHandlerError) Unwrap() error {
+	return b.Err
+}
+
+// TouchStripTouchHandler represents a callback function that is called when a
+// touch strip is touched. It receives the Device instance, the touch strip
+// touch type and point as parameters.
+type TouchStripTouchHandler func(d *Device, t TouchStripTouchType, p image.Point) error
+
+// TouchStripSwipeHandler represents a callback function that is called when a
+// touch strip is swiped. It receives the Device instance, the origin point and
+// the destination point as parameters.
+type TouchStripSwipeHandler func(d *Device, origin image.Point, destination image.Point) error
+
+type touchStrip struct {
+	touchHandlers []TouchStripTouchHandler
+	swipeHandlers []TouchStripSwipeHandler
+	input         *input
+}
+
+func (t *touchStrip) addTouchHandler(h TouchStripTouchHandler) {
+	if h == nil || t.input == nil {
+		return
+	}
+
+	t.input.mtx.Lock()
+	t.touchHandlers = append(t.touchHandlers, h)
+	t.input.mtx.Unlock()
+}
+
+func (t *touchStrip) addSwipeHandler(h TouchStripSwipeHandler) {
+	if h == nil || t.input == nil {
+		return
+	}
+
+	t.input.mtx.Lock()
+	t.swipeHandlers = append(t.swipeHandlers, h)
+	t.input.mtx.Unlock()
+}
+
 type input struct {
-	mtx      sync.Mutex
-	device   *Device
-	channel  chan bool
-	pressed  time.Time
-	released time.Time
-	duration time.Duration
-	key      *Key
-	tp       *TouchPoint
+	mtx        sync.Mutex
+	device     *Device
+	channel    chan bool
+	pressed    time.Time
+	released   time.Time
+	duration   time.Duration
+	key        *Key
+	tp         *TouchPoint
+	dial       *Dial
+	touchStrip *touchStrip
 }
 
 func newInputs(d *Device, numKeys byte, numTouchPoints byte) []*input {
@@ -198,6 +385,30 @@ func newInputs(d *Device, numKeys byte, numTouchPoints byte) []*input {
 		in.tp.input = in
 		rv = append(rv, in)
 	}
+	return rv
+}
+
+func newDialInputs(d *Device, numDials byte) []*input {
+	rv := []*input{}
+	for i := DIAL_1; i < DialID(numDials+1); i++ {
+		in := &input{
+			device: d,
+			dial: &Dial{
+				id: i,
+			},
+		}
+		in.dial.input = in
+		rv = append(rv, in)
+	}
+	return rv
+}
+
+func newTouchStripInput(d *Device) *input {
+	rv := &input{
+		device:     d,
+		touchStrip: &touchStrip{},
+	}
+	rv.touchStrip.input = rv
 	return rv
 }
 
@@ -253,6 +464,28 @@ func (in *input) press(t time.Time, errCh chan error) {
 			}(in, h)
 		}
 	}
+
+	if in.dial != nil {
+		for _, h := range in.dial.switchHandlers {
+			go func(in *input, hnd DialSwitchHandler) {
+				if err := hnd(in.device, in.dial); err != nil {
+					e := DialHandlerError{
+						DialID: in.dial.id,
+						Err:    err,
+					}
+
+					if errCh != nil {
+						select {
+						case errCh <- e:
+						default:
+						}
+					} else {
+						log.Printf("error: %s", e)
+					}
+				}
+			}(in, h)
+		}
+	}
 }
 
 func (in *input) release(t time.Time) {
@@ -268,4 +501,93 @@ func (in *input) release(t time.Time) {
 	in.duration = in.released.Sub(in.pressed)
 	in.pressed = time.Time{}
 	close(in.channel)
+}
+
+func (in *input) rotate(delta int8, errCh chan error) {
+	in.mtx.Lock()
+	defer in.mtx.Unlock()
+
+	if in.dial == nil {
+		return
+	}
+
+	for _, h := range in.dial.rotateHandlers {
+		go func(in *input, hnd DialRotateHandler) {
+			if err := hnd(in.device, in.dial, delta); err != nil {
+				e := DialHandlerError{
+					DialID: in.dial.id,
+					Err:    err,
+				}
+
+				if errCh != nil {
+					select {
+					case errCh <- e:
+					default:
+					}
+				} else {
+					log.Printf("error: %s", e)
+				}
+			}
+		}(in, h)
+	}
+}
+
+func (in *input) touch(t TouchStripTouchType, p image.Point, errCh chan error) {
+	in.mtx.Lock()
+	defer in.mtx.Unlock()
+
+	if in.touchStrip == nil {
+		return
+	}
+
+	for _, h := range in.touchStrip.touchHandlers {
+		go func(in *input, hnd TouchStripTouchHandler) {
+			if err := hnd(in.device, t, p); err != nil {
+				e := TouchStripTouchHandlerError{
+					Type:  t,
+					Point: p,
+					Err:   err,
+				}
+
+				if errCh != nil {
+					select {
+					case errCh <- e:
+					default:
+					}
+				} else {
+					log.Printf("error: %s", e)
+				}
+			}
+		}(in, h)
+	}
+}
+
+func (in *input) swipe(origin image.Point, destination image.Point, errCh chan error) {
+	in.mtx.Lock()
+	defer in.mtx.Unlock()
+
+	if in.touchStrip == nil {
+		return
+	}
+
+	for _, h := range in.touchStrip.swipeHandlers {
+		go func(in *input, hnd TouchStripSwipeHandler) {
+			if err := hnd(in.device, origin, destination); err != nil {
+				e := TouchStripSwipeHandlerError{
+					Origin:      origin,
+					Destination: destination,
+					Err:         err,
+				}
+
+				if errCh != nil {
+					select {
+					case errCh <- e:
+					default:
+					}
+				} else {
+					log.Printf("error: %s", e)
+				}
+			}
+		}(in, h)
+	}
 }

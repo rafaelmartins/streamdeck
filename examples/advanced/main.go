@@ -28,7 +28,7 @@ func main() {
 	}
 
 	log.Println("Stream Deck Advanced Example")
-	log.Println("This example demonstrates advanced features like info bar and touch points")
+	log.Println("This example demonstrates advanced features like info bar, touch strips and touch points")
 	log.Println("Press Ctrl+C to exit")
 
 	if err := device.Open(); err != nil {
@@ -42,7 +42,7 @@ func main() {
 	}()
 
 	log.Printf("Device: %s (%s)", device.GetModelName(), device.GetModelID())
-	log.Printf("Keys: %d, Touch Points: %d", device.GetKeyCount(), device.GetTouchPointCount())
+	log.Printf("Keys: %d, Touch Points: %d, Dials: %d", device.GetKeyCount(), device.GetTouchPointCount(), device.GetDialCount())
 
 	if rect, err := device.GetInfoBarImageRectangle(); err != nil {
 		if errors.Is(err, streamdeck.ErrDeviceInfoBarNotSupported) {
@@ -59,6 +59,38 @@ func main() {
 			log.Printf("error: failed to create a gradient for the info bar: %v", err)
 		} else {
 			log.Println("Set info bar gradient")
+		}
+	}
+
+	if rect, err := device.GetTouchStripImageRectangle(); err != nil {
+		if errors.Is(err, streamdeck.ErrDeviceTouchStripNotSupported) {
+			log.Println("Touch strip not supported on this device")
+		} else {
+			log.Printf("error: %v", err)
+		}
+	} else {
+		log.Printf("Touch strip supported, dimensions: %dx%d", rect.Dx(), rect.Dy())
+
+		// create a gradient image for the touch strip
+		img := createGradientImage(rect, colornames.Blueviolet, colornames.Orangered)
+		if err := device.SetTouchStripImage(img); err != nil {
+			log.Printf("error: failed to create a gradient for the touch strip: %v", err)
+		} else {
+			log.Println("Set touch strip gradient")
+		}
+
+		if err := device.AddTouchStripTouchHandler(func(d *streamdeck.Device, typ streamdeck.TouchStripTouchType, p image.Point) error {
+			log.Printf("Touch strip activated: (%s: %s)", typ, p)
+			return nil
+		}); err != nil {
+			log.Printf("error: %v", err)
+		}
+
+		if err := device.AddTouchStripSwipeHandler(func(d *streamdeck.Device, origin image.Point, destination image.Point) error {
+			log.Printf("Touch strip swiped: (%s -> %s)", origin, destination)
+			return nil
+		}); err != nil {
+			log.Printf("error: %v", err)
 		}
 	}
 
@@ -101,6 +133,30 @@ func main() {
 		}
 	}
 
+	if count := device.GetDialCount(); count == 0 {
+		log.Println("Dials not supported on this device")
+	} else {
+		log.Println("Setting up dials...")
+
+		if err := device.ForEachDial(func(d streamdeck.DialID) error {
+			if err := device.AddDialRotateHandler(d, func(d *streamdeck.Device, di *streamdeck.Dial, delta int8) error {
+				log.Printf("Dial %s rotated: %d", di, delta)
+				return nil
+			}); err != nil {
+				return err
+			}
+
+			return device.AddDialSwitchHandler(d, func(d *streamdeck.Device, di *streamdeck.Dial) error {
+				log.Printf("Dial %s pressed!", di)
+				duration := di.WaitForRelease()
+				log.Printf("Dial %s was held for %v", di, duration)
+				return nil
+			})
+		}); err != nil {
+			log.Printf("error: %v", err)
+		}
+	}
+
 	setupKeys(device)
 
 	// set brightness to maximum for better visibility
@@ -121,7 +177,7 @@ func main() {
 		}
 	}()
 
-	log.Println("Advanced features ready! Try pressing keys and touch points...")
+	log.Println("Advanced features ready! Try operating keys, touch points, dials...")
 
 	ticker := time.NewTicker(5 * time.Second)
 	defer ticker.Stop()
@@ -143,6 +199,7 @@ func main() {
 
 		case <-ticker.C:
 			updateInfoBar(device)
+			updateTouchStrip(device)
 		}
 	}
 }
@@ -323,5 +380,24 @@ func updateInfoBar(device *streamdeck.Device) {
 
 	if err := device.SetInfoBarColor(timeColor); err != nil {
 		log.Printf("error: failed to set info bar color: %v", err)
+	}
+}
+
+func updateTouchStrip(device *streamdeck.Device) {
+	if !device.GetTouchStripSupported() {
+		return
+	}
+
+	// create a simple color representation of time
+	now := time.Now()
+	timeColor := color.RGBA{
+		R: uint8(50 + (now.Second() * 3)),
+		G: uint8(100),
+		B: uint8(200 - (now.Second() * 2)),
+		A: 255,
+	}
+
+	if err := device.SetTouchStripColor(timeColor); err != nil {
+		log.Printf("error: failed to set touch strip color: %v", err)
 	}
 }

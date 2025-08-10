@@ -30,7 +30,7 @@ func main() {
 	}
 
 	log.Println("Stream Deck Image Examples")
-	log.Println("This example shows different ways to set images on keys")
+	log.Println("This example shows different ways to set images on keys and touch strip (if available)")
 	log.Println("Press Ctrl+C to exit")
 
 	if err := device.Open(); err != nil {
@@ -43,8 +43,14 @@ func main() {
 	}()
 
 	log.Printf("Setting up %d keys with different image types", device.GetKeyCount())
-
 	setupImageExamples(device)
+
+	if device.GetTouchStripSupported() {
+		log.Printf("Setting up touch strip with different image types")
+		setupTouchStripExamples(device)
+	} else {
+		log.Printf("Touch strip not supported")
+	}
 
 	if err := device.ForEachKey(func(key streamdeck.KeyID) error {
 		return device.AddKeyHandler(key, func(d *streamdeck.Device, k *streamdeck.Key) error {
@@ -93,6 +99,88 @@ func main() {
 			if err != nil {
 				log.Printf("Input error: %v", err)
 			}
+		}
+	}
+}
+
+func setupTouchStripTile(device *streamdeck.Device, tile int, withLog bool) error {
+	printf := func(format string, v ...any) {
+		if withLog {
+			log.Printf(format, v...)
+		}
+	}
+
+	rect, err := device.GetTouchStripImageRectangle()
+	if err != nil {
+		return err
+	}
+	tileRect := image.Rect(0, 0, rect.Dy(), rect.Dy())
+	tileViewport := image.Rect((tile-1)*rect.Dy(), 0, (tile-1)*rect.Dy()+rect.Dy(), rect.Dy())
+
+	switch tile {
+	case 1:
+		printf("Tile %d: Setting solid red color", tile)
+		return device.SetTouchStripColorWithRectangle(colornames.Red, tileViewport)
+
+	case 2:
+		printf("Tile %d: Setting gradient image", tile)
+		return device.SetTouchStripImageWithRectangle(createGradient(tileRect, colornames.Red, colornames.Blue), tileViewport)
+
+	case 3:
+		printf("Tile %d: Setting embedded icon", tile)
+		if err = device.SetTouchStripImageFromFSWithRectangle(iconFS, "play.png", tileViewport); err != nil {
+			printf("error: failed to load embedded icon, using pattern: %v", err)
+			return device.SetTouchStripImageWithRectangle(createCheckerboard(tileRect, colornames.Yellow, colornames.Orange), tileViewport)
+		}
+
+	case 4:
+		printf("Tile %d: Setting checkerboard pattern", tile)
+		return device.SetTouchStripImageWithRectangle(createCheckerboard(tileRect, colornames.Lime, colornames.Green), tileViewport)
+
+	case 5:
+		printf("Tile %d: Setting circle pattern", tile)
+		return device.SetTouchStripImageWithRectangle(createCircle(tileRect, colornames.Purple, colornames.Mediumpurple), tileViewport)
+
+	case 6:
+		printf("Tile %d: Setting stripes pattern", tile)
+		return device.SetTouchStripImageWithRectangle(createStripes(tileRect, colornames.Cyan, colornames.Teal), tileViewport)
+
+	case 7:
+		printf("Tile %d: Setting spiral pattern", tile)
+		return device.SetTouchStripImageWithRectangle(createSpiral(tileRect, colornames.Darkorange, colornames.Brown), tileViewport)
+
+	case 8:
+		printf("Tile %d: Setting diamond pattern", tile)
+		return device.SetTouchStripImageWithRectangle(createDiamond(tileRect, colornames.Lightgreen, colornames.Darkgreen), tileViewport)
+
+	default:
+		printf("Tile %d: Setting random color", tile)
+		randomColor := color.RGBA{
+			R: uint8(tile * 37),
+			G: uint8(tile * 73),
+			B: uint8(tile * 109),
+			A: 255,
+		}
+		return device.SetTouchStripColorWithRectangle(randomColor, tileViewport)
+	}
+	return nil
+}
+
+func setupTouchStripExamples(device *streamdeck.Device) {
+	if !device.GetTouchStripSupported() {
+		log.Printf("Touch Strip not supported")
+		return
+	}
+
+	rect, err := device.GetTouchStripImageRectangle()
+	if err != nil {
+		log.Printf("error: %s", err)
+		return
+	}
+
+	for tile := range rect.Dx() / rect.Dy() {
+		if err := setupTouchStripTile(device, tile+1, true); err != nil {
+			log.Printf("error.failed to set touch strip tile %d: %v", tile+1, err)
 		}
 	}
 }
@@ -190,7 +278,7 @@ func createGradient(rect image.Rectangle, color1, color2 color.RGBA) image.Image
 
 func createCheckerboard(rect image.Rectangle, color1, color2 color.RGBA) image.Image {
 	img := image.NewRGBA(rect)
-	squareSize := rect.Dx() / 8
+	squareSize := rect.Dx() / 10
 
 	for y := rect.Min.Y; y < rect.Max.Y; y++ {
 		for x := rect.Min.X; x < rect.Max.X; x++ {
@@ -231,7 +319,7 @@ func createCircle(rect image.Rectangle, fillColor, bgColor color.RGBA) image.Ima
 
 func createStripes(rect image.Rectangle, color1, color2 color.RGBA) image.Image {
 	img := image.NewRGBA(rect)
-	stripeWidth := rect.Dx() / 8
+	stripeWidth := rect.Dx() / 10
 
 	for y := rect.Min.Y; y < rect.Max.Y; y++ {
 		for x := rect.Min.X; x < rect.Max.X; x++ {

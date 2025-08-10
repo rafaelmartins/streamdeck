@@ -11,6 +11,7 @@ package streamdeck
 import (
 	"errors"
 	"fmt"
+	"image"
 	"time"
 
 	"rafaelmartins.com/p/usbhid"
@@ -27,6 +28,9 @@ var (
 	ErrDeviceIsOpen                 = usbhid.ErrDeviceIsOpen
 	ErrDeviceLocked                 = usbhid.ErrDeviceLocked
 	ErrDeviceTouchPointNotSupported = errors.New("device hardware does not includes touch points")
+	ErrDeviceTouchStripNotSupported = errors.New("device hardware does not includes a touch strip")
+	ErrDialHandlerInvalid           = errors.New("dial handler is not valid")
+	ErrDialInvalid                  = errors.New("dial is not valid")
 	ErrGetFeatureReportFailed       = usbhid.ErrGetFeatureReportFailed
 	ErrGetInputReportFailed         = usbhid.ErrGetInputReportFailed
 	ErrImageInvalid                 = errors.New("image is not valid")
@@ -39,18 +43,22 @@ var (
 	ErrSetOutputReportFailed        = usbhid.ErrSetOutputReportFailed
 	ErrTouchPointHandlerInvalid     = errors.New("touch point handler is not valid")
 	ErrTouchPointInvalid            = errors.New("touch point is not valid")
+	ErrTouchStripHandlerInvalid     = errors.New("touch strip handler is not valid")
 )
 
 // Device represents an Elgato Stream Deck device and provides methods to
 // interact with it, including setting key images, handling input events, and
 // controlling device settings.
 type Device struct {
-	dev    *usbhid.Device
-	model  *model
-	inputs []*input
-	states []byte
-	listen chan struct{}
-	open   bool
+	dev             *usbhid.Device
+	model           *model
+	inputs          []*input
+	dialInputs      []*input
+	touchStripInput *input
+	keyStates       []byte
+	dialStates      []byte
+	listen          chan struct{}
+	open            bool
 }
 
 func wrapErr(err error) error {
@@ -206,6 +214,20 @@ func (d *Device) validateInfoBar() error {
 	return nil
 }
 
+func (d *Device) validateDial(di DialID) error {
+	if di < DIAL_1 || di >= DIAL_1+DialID(d.model.dialCount) {
+		return fmt.Errorf("%w: %s", ErrDialInvalid, di)
+	}
+	return nil
+}
+
+func (d *Device) validateTouchStrip() error {
+	if d.model.touchStripImageSend == nil {
+		return wrapErr(ErrDeviceTouchStripNotSupported)
+	}
+	return nil
+}
+
 // AddKeyHandler registers a KeyHandler callback to be called whenever the
 // given key is pressed.
 func (d *Device) AddKeyHandler(key KeyID, fn KeyHandler) error {
@@ -254,6 +276,92 @@ func (d *Device) AddTouchPointHandler(tp TouchPointID, fn TouchPointHandler) err
 	return fmt.Errorf("%w: %s", ErrTouchPointInvalid, tp)
 }
 
+// AddDialSwitchHandler registers a DialSwitchHandler callback to be called
+// whenever the given dial is pressed.
+func (d *Device) AddDialSwitchHandler(di DialID, fn DialSwitchHandler) error {
+	if err := d.validateDial(di); err != nil {
+		return err
+	}
+
+	if fn == nil {
+		return wrapErr(ErrDialHandlerInvalid)
+	}
+
+	if d.dialInputs == nil {
+		d.dialInputs = newDialInputs(d, d.model.dialCount)
+	}
+
+	for _, in := range d.dialInputs {
+		if in.dial != nil && in.dial.id == di {
+			in.dial.addSwitchHandler(fn)
+			return nil
+		}
+	}
+	return fmt.Errorf("%w: %s", ErrDialInvalid, di)
+}
+
+// AddDialRotateHandler registers a DialSwitchHandler callback to be called
+// whenever the given dial is rotated.
+func (d *Device) AddDialRotateHandler(di DialID, fn DialRotateHandler) error {
+	if err := d.validateDial(di); err != nil {
+		return err
+	}
+
+	if fn == nil {
+		return wrapErr(ErrDialHandlerInvalid)
+	}
+
+	if d.dialInputs == nil {
+		d.dialInputs = newDialInputs(d, d.model.dialCount)
+	}
+
+	for _, in := range d.dialInputs {
+		if in.dial != nil && in.dial.id == di {
+			in.dial.addRotateHandler(fn)
+			return nil
+		}
+	}
+	return fmt.Errorf("%w: %s", ErrDialInvalid, di)
+}
+
+// AddTouchStripTouchHandler registers a TouchStripTouchHandler callback to be
+// called whenever the touch strip is touched.
+func (d *Device) AddTouchStripTouchHandler(fn TouchStripTouchHandler) error {
+	if err := d.validateTouchStrip(); err != nil {
+		return err
+	}
+
+	if fn == nil {
+		return wrapErr(ErrTouchStripHandlerInvalid)
+	}
+
+	if d.touchStripInput == nil {
+		d.touchStripInput = newTouchStripInput(d)
+	}
+
+	d.touchStripInput.touchStrip.addTouchHandler(fn)
+	return nil
+}
+
+// AddTouchStripSwipeHandler registers a TouchStripSwipeHandler callback to be
+// called whenever the touch strip is swiped.
+func (d *Device) AddTouchStripSwipeHandler(fn TouchStripSwipeHandler) error {
+	if err := d.validateTouchStrip(); err != nil {
+		return err
+	}
+
+	if fn == nil {
+		return wrapErr(ErrTouchStripHandlerInvalid)
+	}
+
+	if d.touchStripInput == nil {
+		d.touchStripInput = newTouchStripInput(d)
+	}
+
+	d.touchStripInput.touchStrip.addSwipeHandler(fn)
+	return nil
+}
+
 // Listen listens to input events from the Elgato Stream Deck device and calls
 // handler callbacks as required.
 //
@@ -265,8 +373,11 @@ func (d *Device) Listen(errCh chan error) error {
 		return err
 	}
 
-	if i := int(d.model.keyCount + d.model.touchPointCount); len(d.states) != i {
-		d.states = make([]byte, i)
+	if i := int(d.model.keyCount + d.model.touchPointCount); len(d.keyStates) != i {
+		d.keyStates = make([]byte, i)
+	}
+	if len(d.dialStates) != int(d.model.dialCount) {
+		d.dialStates = make([]byte, d.model.dialCount)
 	}
 
 	for {
@@ -287,6 +398,84 @@ func (d *Device) Listen(errCh chan error) error {
 			return fmt.Errorf("streamdeck: got unexpected report id: %d", id)
 		}
 
+		if buf[0] == 2 && d.model.touchStripImageSend != nil {
+			if d.touchStripInput == nil {
+				continue
+			}
+
+			t := TouchStripTouchType(0)
+
+			switch buf[3] {
+			case 1:
+				t = TOUCH_STRIP_TOUCH_TYPE_SHORT
+				fallthrough
+
+			case 2:
+				if t == 0 {
+					t = TOUCH_STRIP_TOUCH_TYPE_LONG
+				}
+
+				if len(buf) < 9 {
+					continue
+				}
+
+				d.touchStripInput.touch(t, image.Point{
+					X: int(buf[6])<<8 | int(buf[5]),
+					Y: int(buf[8])<<8 | int(buf[7]),
+				}, errCh)
+
+			case 3:
+				if len(buf) < 13 {
+					continue
+				}
+
+				d.touchStripInput.swipe(image.Point{
+					X: int(buf[6])<<8 | int(buf[5]),
+					Y: int(buf[8])<<8 | int(buf[7]),
+				}, image.Point{
+					X: int(buf[10])<<8 | int(buf[9]),
+					Y: int(buf[12])<<8 | int(buf[11]),
+				}, errCh)
+			}
+			continue
+		}
+
+		if buf[0] == 3 && d.model.dialCount > 0 {
+			states := buf[d.model.dialStart : d.model.dialStart+d.model.dialCount]
+			switch buf[3] {
+			case 0:
+				t := time.Now()
+				for i, st := range states {
+					if st == d.dialStates[i] {
+						continue
+					}
+					if i >= len(d.dialInputs) {
+						continue
+					}
+
+					inp := d.dialInputs[i]
+					if st > 0 {
+						inp.press(t, errCh)
+					} else {
+						inp.release(t)
+					}
+				}
+				d.dialStates = states
+				continue
+
+			case 1:
+				for i, st := range states {
+					if i >= len(d.dialInputs) {
+						continue
+					}
+					if st != 0 {
+						d.dialInputs[i].rotate(int8(st), errCh)
+					}
+				}
+			}
+			continue
+		}
+
 		states := buf[d.model.keyStart : d.model.keyStart+d.model.keyCount]
 		if d.model.touchPointCount > 0 {
 			states = append(states, buf[d.model.touchPointStart:d.model.touchPointStart+d.model.touchPointCount]...)
@@ -294,7 +483,7 @@ func (d *Device) Listen(errCh chan error) error {
 
 		t := time.Now()
 		for i, st := range states {
-			if st == d.states[i] {
+			if st == d.keyStates[i] {
 				continue
 			}
 			if i >= len(d.inputs) {
@@ -308,7 +497,7 @@ func (d *Device) Listen(errCh chan error) error {
 				inp.release(t)
 			}
 		}
-		d.states = states
+		d.keyStates = states
 	}
 }
 
@@ -340,10 +529,22 @@ func (d *Device) GetTouchPointCount() byte {
 	return d.model.touchPointCount
 }
 
+// GetDialCount returns the number of dials available on the Elgato Stream Deck
+// device.
+func (d *Device) GetDialCount() byte {
+	return d.model.dialCount
+}
+
 // GetInfoBarSupported returns a boolean reporting if the Elgato Stream Deck
 // device includes an info bar display.
 func (d *Device) GetInfoBarSupported() bool {
 	return d.model.infoBarImageSend != nil
+}
+
+// GetTouchStripSupported returns a boolean reporting if the Elgato Stream Deck
+// device includes an touch strip display.
+func (d *Device) GetTouchStripSupported() bool {
+	return d.model.touchStripImageSend != nil
 }
 
 // GetFirmwareVersion returns the firmware version of the Elgato Stream Deck
@@ -413,6 +614,22 @@ func (d *Device) ForEachTouchPoint(cb func(tp TouchPointID) error) error {
 
 	for tp := TOUCH_POINT_1; tp < TOUCH_POINT_1+TouchPointID(d.model.touchPointCount); tp++ {
 		if err := cb(tp); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+// ForEachDial calls the provided callback function for each dial
+// available on the Elgato Stream Deck device, passing the DialID as an
+// argument.
+func (d *Device) ForEachDial(cb func(di DialID) error) error {
+	if cb == nil {
+		return errors.New("streamdeck: ForEachDial callback is nil")
+	}
+
+	for di := DIAL_1; di < DIAL_1+DialID(d.model.dialCount); di++ {
+		if err := cb(di); err != nil {
 			return err
 		}
 	}

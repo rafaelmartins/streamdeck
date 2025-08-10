@@ -13,8 +13,9 @@ A pure Go library for interacting with Elgato Stream Deck devices. This library 
 - **Multiple device support** - Supports various Stream Deck models
 - **Input event handling** - Register callbacks for input events
 - **Image display** - Set custom images on keys with automatic scaling
-- **Info bar support** - Control the info bar display on supported models
 - **Touch point control** - Set colors for touch points on supported models
+- **Info bar support** - Control the info bar display on supported models
+- **Touch strip support** - Control the touch strip display on supported models
 - **Device management** - Control brightness, reset, and get device information
 
 
@@ -25,15 +26,8 @@ A pure Go library for interacting with Elgato Stream Deck devices. This library 
 | Stream Deck Mini | 0x0063 | 6 | ❌ | ❌ | ❌ | ❌ |
 | Stream Deck V2 | 0x006d | 15 | ❌ | ❌ | ❌ | ❌ |
 | Stream Deck MK.2 | 0x0080 | 15 | ❌ | ❌ | ❌ | ❌ |
-| Stream Deck Neo | 0x009a | 8 | 2 | ❌ | ✅ | ❌ |
-
-### Upcoming Device Support
-
-The following devices are not yet supported, but there's ongoing work to support them:
-
-| Model | Product ID | Keys | Touch Points | Dials | Info Bar | Touch Strip |
-|-------|------------|------|--------------|-------|----------|-------------|
 | Stream Deck Plus | 0x0084 | 8 | ❌ | 4 | ❌ | ✅ |
+| Stream Deck Neo | 0x009a | 8 | 2 | ❌ | ✅ | ❌ |
 
 Supporting additional models would require hardware access for the library maintainer. Adding support based purely on data reverse-engineered from other libraries is not an option. If you have the means to support adding more devices, please [contact the maintainer](https://rafaelmartins.com/) for additional information.
 
@@ -112,132 +106,6 @@ func main() {
 ```
 
 
-## Usage Examples
-
-### Setting Key Images
-
-```go
-// from a file
-err := device.SetKeyImageFromFile(streamdeck.KEY_1, "icon.png")
-
-// from an embedded filesystem
-//go:embed icons
-var iconFS embed.FS
-err := device.SetKeyImageFromFS(streamdeck.KEY_1, iconFS, "play.png")
-
-// from a solid color
-blue := color.RGBA{0, 0, 255, 255}
-err := device.SetKeyColor(streamdeck.KEY_1, blue)
-
-// clear a key (set to black)
-err := device.ClearKey(streamdeck.KEY_1)
-```
-
-### Input Event Handling
-
-```go
-// simple key handler
-device.AddKeyHandler(streamdeck.KEY_1, func(d *streamdeck.Device, k *streamdeck.Key) error {
-	log.Printf("Key %s pressed", k)
-	return nil
-})
-
-// handler with press duration
-device.AddKeyHandler(streamdeck.KEY_2, func(d *streamdeck.Device, k *streamdeck.Key) error {
-	duration := k.WaitForRelease()
-	log.Printf("Key %s held for %v", k, duration)
-	return nil
-})
-
-// touch point handler (if supported)
-device.AddTouchPointHandler(streamdeck.TOUCH_POINT_1, func(d *streamdeck.Device, tp *streamdeck.TouchPoint) error {
-	log.Printf("Touch point %s pressed", tp)
-	duration := tp.WaitForRelease()
-	log.Printf("Touch point %s held for %v", tp, duration)
-	return nil
-})
-```
-
-### Info Bar Control (if supported)
-
-```go
-// check if info bar is supported
-if device.GetInfoBarSupported() {
-	// set info bar from file
-	err := device.SetInfoBarImageFromFile("info.png")
-
-	// or set solid color
-	err := device.SetInfoBarColor(color.RGBA{255, 0, 0, 255})
-
-	// or clear info bar
-	err := device.ClearInfoBar()
-}
-```
-
-### Touch Point Control (if supported)
-
-```go
-// set touch point colors
-red := color.RGBA{255, 0, 0, 255}
-green := color.RGBA{0, 255, 0, 255}
-
-device.SetTouchPointColor(streamdeck.TOUCH_POINT_1, red)
-device.SetTouchPointColor(streamdeck.TOUCH_POINT_2, green)
-
-// clear touch point (set to black)
-device.ClearTouchPoint(streamdeck.TOUCH_POINT_1)
-```
-
-### Device Information
-
-```go
-// get device details
-modelID := device.GetModelID()
-modelName := device.GetModelName()
-serialNumber := device.GetSerialNumber()
-keyCount := device.GetKeyCount()
-touchPointCount := device.GetTouchPointCount()
-
-fmt.Printf("Model ID: %s\n", modelID)
-fmt.Printf("Model Name: %s\n", modelName)
-fmt.Printf("Serial: %s\n", serialNumber)
-fmt.Printf("Keys: %d\n", keyCount)
-fmt.Printf("Touch Points: %d\n", touchPointCount)
-
-// get firmware version (requires open device)
-if device.IsOpen() {
-	firmwareVersion, err := device.GetFirmwareVersion()
-	if err == nil {
-		fmt.Printf("Firmware: %s\n", firmwareVersion)
-	}
-}
-```
-
-### Brightness Control
-
-```go
-// set brightness to 50%
-err := device.SetBrightness(50)
-```
-
-### Working with Multiple Keys
-
-```go
-// iterate over all keys
-err := device.ForEachKey(func(key streamdeck.KeyID) error {
-	// set each key to a different color
-	hue := float64(key-streamdeck.KEY_1) * 60.0 // different hues
-	color := hsvaToRGBA(hue, 1.0, 1.0, 1.0)
-	return device.SetKeyColor(key, color)
-})
-
-// iterate over all touch points
-err := device.ForEachTouchPoint(func(tp streamdeck.TouchPointID) error {
-	return device.SetTouchPointColor(tp, color.RGBA{255, 255, 255, 255})
-})
-```
-
-
 ## API Reference
 
 Please check [pkg.go.dev/rafaelmartins.com/p/streamdeck](https://pkg.go.dev/rafaelmartins.com/p/streamdeck) for complete API documentation.
@@ -248,7 +116,7 @@ Please check [pkg.go.dev/rafaelmartins.com/p/streamdeck](https://pkg.go.dev/rafa
 See the [examples](examples/) directory for complete working examples:
 
 - **[Basic Usage](examples/basic/main.go)** - Simple input handling and image setting with complete error handling
-- **[Advanced Features](examples/advanced/main.go)** - Info bar, touch points, long press detection, and dynamic effects
+- **[Advanced Features](examples/advanced/main.go)** - Info bar, touch points, dials, touch strip, long press detection, and dynamic effects
 - **[Image Examples](examples/images/main.go)** - Different ways to set images including embedded files, patterns, and generated graphics
 - **[Device Information](examples/device-info/main.go)** - Device enumeration, capability detection, and information retrieval
 - **[Multi-Device](examples/multi-device/main.go)** - Working with multiple Stream Deck devices simultaneously with synchronized effects

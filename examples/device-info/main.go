@@ -45,6 +45,7 @@ func main() {
 
 		fmt.Printf("  Key Count: %d\n", device.GetKeyCount())
 		fmt.Printf("  Touch Point Count: %d\n", device.GetTouchPointCount())
+		fmt.Printf("  Dial Count: %d\n", device.GetDialCount())
 
 		if rect, err := device.GetKeyImageRectangle(); err != nil {
 			fmt.Printf("  Key Image Size: Error - %v\n", err)
@@ -60,6 +61,16 @@ func main() {
 			}
 		} else {
 			fmt.Printf("  Info Bar: Supported (%dx%d)\n", rect.Dx(), rect.Dy())
+		}
+
+		if rect, err := device.GetTouchStripImageRectangle(); err != nil {
+			if errors.Is(err, streamdeck.ErrDeviceTouchStripNotSupported) {
+				fmt.Println("  Touch Strip: Not supported")
+			} else {
+				fmt.Printf("  Touch Strip: Error - %v\n", err)
+			}
+		} else {
+			fmt.Printf("  Touch Strip: Supported (%dx%d)\n", rect.Dx(), rect.Dy())
 		}
 
 		fmt.Println("  Testing basic functionality...")
@@ -164,6 +175,15 @@ func testBasicFunctionality(device *streamdeck.Device) error {
 		}
 		if err := device.ClearInfoBar(); err != nil {
 			return fmt.Errorf("info bar clearing failed: %w", err)
+		}
+	}
+
+	if device.GetTouchStripSupported() {
+		if err := device.SetTouchStripColor(colornames.Blue); err != nil {
+			return fmt.Errorf("touch strip color setting failed: %w", err)
+		}
+		if err := device.ClearTouchStrip(); err != nil {
+			return fmt.Errorf("touch strip clearing failed: %w", err)
 		}
 	}
 	return nil
