@@ -151,10 +151,17 @@ func (d *Device) Open() error {
 	return nil
 }
 
-// Close closes the Elgato Stream Deck device.
-func (d *Device) Close() error {
+func (d *Device) validateOpen() error {
 	if !d.IsOpen() {
 		return wrapErr(ErrDeviceIsClosed)
+	}
+	return nil
+}
+
+// Close closes the Elgato Stream Deck device.
+func (d *Device) Close() error {
+	if err := d.validateOpen(); err != nil {
+		return err
 	}
 
 	if err := d.closeDisplays(); err != nil {
@@ -174,9 +181,38 @@ func (d *Device) Close() error {
 	return nil
 }
 
+func (d *Device) validateKey(key KeyID) error {
+	if key < KEY_1 || key >= KEY_1+KeyID(d.model.keyCount) {
+		return fmt.Errorf("%w: %s", ErrKeyInvalid, key)
+	}
+	return nil
+}
+
+func (d *Device) validateTouchPoint(tp TouchPointID) error {
+	if d.model.touchPointColorSend == nil || d.model.touchPointCount == 0 {
+		return wrapErr(ErrDeviceTouchPointNotSupported)
+	}
+
+	if tp < TOUCH_POINT_1 || tp >= TOUCH_POINT_1+TouchPointID(d.model.touchPointCount) {
+		return fmt.Errorf("%w: %s", ErrTouchPointInvalid, tp)
+	}
+	return nil
+}
+
+func (d *Device) validateInfoBar() error {
+	if d.model.infoBarImageSend == nil {
+		return wrapErr(ErrDeviceInfoBarNotSupported)
+	}
+	return nil
+}
+
 // AddKeyHandler registers a KeyHandler callback to be called whenever the
 // given key is pressed.
-func (d *Device) AddKeyHandler(id KeyID, fn KeyHandler) error {
+func (d *Device) AddKeyHandler(key KeyID, fn KeyHandler) error {
+	if err := d.validateKey(key); err != nil {
+		return err
+	}
+
 	if fn == nil {
 		return wrapErr(ErrKeyHandlerInvalid)
 	}
@@ -186,17 +222,21 @@ func (d *Device) AddKeyHandler(id KeyID, fn KeyHandler) error {
 	}
 
 	for _, in := range d.inputs {
-		if in.key != nil && in.key.id == id {
+		if in.key != nil && in.key.id == key {
 			in.key.addHandler(fn)
 			return nil
 		}
 	}
-	return fmt.Errorf("%w: %s", ErrKeyInvalid, id)
+	return fmt.Errorf("%w: %s", ErrKeyInvalid, key)
 }
 
 // AddTouchPointHandler registers a TouchPointHandler callback to be called
 // whenever the given touch point is pressed.
-func (d *Device) AddTouchPointHandler(id TouchPointID, fn TouchPointHandler) error {
+func (d *Device) AddTouchPointHandler(tp TouchPointID, fn TouchPointHandler) error {
+	if err := d.validateTouchPoint(tp); err != nil {
+		return err
+	}
+
 	if fn == nil {
 		return wrapErr(ErrTouchPointHandlerInvalid)
 	}
@@ -206,12 +246,12 @@ func (d *Device) AddTouchPointHandler(id TouchPointID, fn TouchPointHandler) err
 	}
 
 	for _, in := range d.inputs {
-		if in.tp != nil && in.tp.id == id {
+		if in.tp != nil && in.tp.id == tp {
 			in.tp.addHandler(fn)
 			return nil
 		}
 	}
-	return fmt.Errorf("%w: %s", ErrTouchPointInvalid, id)
+	return fmt.Errorf("%w: %s", ErrTouchPointInvalid, tp)
 }
 
 // Listen listens to input events from the Elgato Stream Deck device and calls
@@ -221,8 +261,8 @@ func (d *Device) AddTouchPointHandler(id TouchPointID, fn TouchPointHandler) err
 // to a nil channel, errors are sent to standard logger. Errors are sent
 // non-blocking.
 func (d *Device) Listen(errCh chan error) error {
-	if !d.IsOpen() {
-		return wrapErr(ErrDeviceIsClosed)
+	if err := d.validateOpen(); err != nil {
+		return err
 	}
 
 	if i := int(d.model.keyCount + d.model.touchPointCount); len(d.states) != i {
@@ -309,8 +349,8 @@ func (d *Device) GetInfoBarSupported() bool {
 // GetFirmwareVersion returns the firmware version of the Elgato Stream Deck
 // device.
 func (d *Device) GetFirmwareVersion() (string, error) {
-	if !d.IsOpen() {
-		return "", wrapErr(ErrDeviceIsClosed)
+	if err := d.validateOpen(); err != nil {
+		return "", err
 	}
 
 	rv, err := d.model.firmwareVersion(d.dev)
@@ -325,8 +365,8 @@ func (d *Device) GetFirmwareVersion() (string, error) {
 // Please note that this will close the connection, because this is similar to
 // power cycling the device. This function won't try to reconnect.
 func (d *Device) Reset() error {
-	if !d.IsOpen() {
-		return wrapErr(ErrDeviceIsClosed)
+	if err := d.validateOpen(); err != nil {
+		return err
 	}
 
 	if err := d.model.reset(d.dev); err != nil {
@@ -338,8 +378,8 @@ func (d *Device) Reset() error {
 
 // SetBrightness sets the Elgato Stream Deck device brightness, in percent.
 func (d *Device) SetBrightness(perc byte) error {
-	if !d.IsOpen() {
-		return wrapErr(ErrDeviceIsClosed)
+	if err := d.validateOpen(); err != nil {
+		return err
 	}
 
 	if perc > 100 {

@@ -188,7 +188,7 @@ func newInputs(d *Device, numKeys byte, numTouchPoints byte) []*input {
 		in.key.input = in
 		rv = append(rv, in)
 	}
-	for i := TOUCH_POINT_1; i < TouchPointID(numTouchPoints+1); i++ {
+	for i := TOUCH_POINT_1; i < TOUCH_POINT_1+TouchPointID(numTouchPoints); i++ {
 		in := &input{
 			device: d,
 			tp: &TouchPoint{

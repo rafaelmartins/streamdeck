@@ -144,9 +144,6 @@ func genImage(img image.Image, rect image.Rectangle, ifmt imageFormat, transform
 }
 
 func imageSend(dev *usbhid.Device, id byte, hdr []byte, imgData []byte, updateCb func(hdr []byte, page byte, last byte, size uint16)) error {
-	if !dev.IsOpen() {
-		return wrapErr(ErrDeviceIsClosed)
-	}
 	if updateCb == nil {
 		return errors.New("image update callback not set")
 	}
@@ -179,13 +176,7 @@ func imageSend(dev *usbhid.Device, id byte, hdr []byte, imgData []byte, updateCb
 	return nil
 }
 
-// SetKeyImage draws a given image.Image to an Elgato Stream Deck key
-// background display. The image is scaled as needed.
-func (d *Device) SetKeyImage(key KeyID, img image.Image) error {
-	if !d.IsOpen() {
-		return wrapErr(ErrDeviceIsClosed)
-	}
-
+func (d *Device) setKeyImage(key KeyID, img image.Image) error {
 	data, err := genImage(img, d.model.keyImageRect, d.model.keyImageFormat, d.model.keyImageTransform)
 	if err != nil {
 		return wrapErr(err)
@@ -193,57 +184,110 @@ func (d *Device) SetKeyImage(key KeyID, img image.Image) error {
 	return wrapErr(d.model.keyImageSend(d.dev, key, data))
 }
 
-// SetKeyImageFromReader draws an image from an io.Reader to an Elgato Stream
-// Deck key background display. The image is decoded and scaled as needed.
-func (d *Device) SetKeyImageFromReader(key KeyID, r io.Reader) error {
-	if r == nil {
-		return wrapErr(ErrImageInvalid)
-	}
+func (d *Device) setKeyImageFromReader(key KeyID, r io.Reader) error {
 	img, _, err := image.Decode(r)
 	if err != nil {
 		return wrapErr(err)
 	}
-	return d.SetKeyImage(key, img)
+
+	return d.setKeyImage(key, img)
+}
+
+// SetKeyImage draws a given image.Image to an Elgato Stream Deck key
+// background display. The image is scaled as needed.
+func (d *Device) SetKeyImage(key KeyID, img image.Image) error {
+	if err := d.validateOpen(); err != nil {
+		return err
+	}
+
+	if err := d.validateKey(key); err != nil {
+		return err
+	}
+
+	return d.setKeyImage(key, img)
+}
+
+// SetKeyImageFromReader draws an image from an io.Reader to an Elgato Stream
+// Deck key background display. The image is decoded and scaled as needed.
+func (d *Device) SetKeyImageFromReader(key KeyID, r io.Reader) error {
+	if err := d.validateOpen(); err != nil {
+		return err
+	}
+
+	if err := d.validateKey(key); err != nil {
+		return err
+	}
+
+	if r == nil {
+		return wrapErr(ErrImageInvalid)
+	}
+
+	return d.setKeyImageFromReader(key, r)
 }
 
 // SetKeyImageFromReadCloser draws an image from an io.ReadCloser to an Elgato
 // Stream Deck key background display. The ReadCloser is automatically closed
 // after reading.
 func (d *Device) SetKeyImageFromReadCloser(key KeyID, r io.ReadCloser) error {
+	if err := d.validateOpen(); err != nil {
+		return err
+	}
+
+	if err := d.validateKey(key); err != nil {
+		return err
+	}
+
 	if r == nil {
 		return wrapErr(ErrImageInvalid)
 	}
 	defer r.Close()
-	return d.SetKeyImageFromReader(key, r)
+
+	return d.setKeyImageFromReader(key, r)
 }
 
 // SetKeyImageFromFile draws an image from a file to an Elgato Stream Deck key
 // background display. The image is loaded, decoded and scaled as needed.
 func (d *Device) SetKeyImageFromFile(key KeyID, name string) error {
+	if err := d.validateOpen(); err != nil {
+		return err
+	}
+
+	if err := d.validateKey(key); err != nil {
+		return err
+	}
+
 	fp, err := os.Open(name)
 	if err != nil {
 		return wrapErr(err)
 	}
-	return d.SetKeyImageFromReadCloser(key, fp)
+	defer fp.Close()
+
+	return d.setKeyImageFromReader(key, fp)
 }
 
 // SetKeyImageFromFS draws an image from a filesystem to an Elgato Stream Deck
 // key background display. The image is loaded from a filesystem, decoded and
 // scaled as needed.
 func (d *Device) SetKeyImageFromFS(key KeyID, ffs fs.FS, name string) error {
+	if err := d.validateOpen(); err != nil {
+		return err
+	}
+
+	if err := d.validateKey(key); err != nil {
+		return err
+	}
+
 	fp, err := ffs.Open(name)
 	if err != nil {
 		return wrapErr(err)
 	}
-	return d.SetKeyImageFromReadCloser(key, fp)
+	defer fp.Close()
+
+	return d.setKeyImageFromReader(key, fp)
 }
 
 // SetKeyColor sets a color to an Elgato Stream Deck key background display.
 func (d *Device) SetKeyColor(key KeyID, c color.Color) error {
-	if !d.IsOpen() {
-		return wrapErr(ErrDeviceIsClosed)
-	}
-
 	return d.SetKeyImage(key, &imageColor{
 		c: c,
 		b: d.model.keyImageRect,
@@ -261,77 +305,122 @@ func (d *Device) GetKeyImageRectangle() (image.Rectangle, error) {
 	return d.model.keyImageRect, nil // at some point there could be a stream deck without key display?
 }
 
-// SetInfoBarImage draws a given image.Image to the info bar display available
-// on some Elgato Stream Deck models. The image is scaled as needed.
-func (d *Device) SetInfoBarImage(img image.Image) error {
-	if !d.IsOpen() {
-		return wrapErr(ErrDeviceIsClosed)
-	}
-	if d.model.infoBarImageSend == nil {
-		return wrapErr(ErrDeviceInfoBarNotSupported)
-	}
-
+func (d *Device) setInfoBarImage(img image.Image) error {
 	data, err := genImage(img, d.model.infoBarImageRect, d.model.infoBarImageFormat, d.model.infoBarImageTransform)
 	if err != nil {
 		return wrapErr(err)
 	}
+
 	return wrapErr(d.model.infoBarImageSend(d.dev, data))
+}
+
+func (d *Device) setInfoBarImageFromReader(r io.Reader) error {
+	img, _, err := image.Decode(r)
+	if err != nil {
+		return wrapErr(err)
+	}
+
+	return d.setInfoBarImage(img)
+}
+
+// SetInfoBarImage draws a given image.Image to the info bar display available
+// on some Elgato Stream Deck models. The image is scaled as needed.
+func (d *Device) SetInfoBarImage(img image.Image) error {
+	if err := d.validateOpen(); err != nil {
+		return err
+	}
+
+	if d.model.infoBarImageSend == nil {
+		return wrapErr(ErrDeviceInfoBarNotSupported)
+	}
+
+	return d.setInfoBarImage(img)
 }
 
 // SetInfoBarImageFromReader draws an image from an io.Reader to the info bar
 // display available on some Elgato Stream Deck models. The image is decoded
 // and scaled as needed.
 func (d *Device) SetInfoBarImageFromReader(r io.Reader) error {
+	if err := d.validateOpen(); err != nil {
+		return err
+	}
+
+	if err := d.validateInfoBar(); err != nil {
+		return err
+	}
+
 	if r == nil {
 		return wrapErr(ErrImageInvalid)
 	}
-	img, _, err := image.Decode(r)
-	if err != nil {
-		return wrapErr(err)
-	}
-	return d.SetInfoBarImage(img)
+
+	return d.setInfoBarImageFromReader(r)
 }
 
 // SetInfoBarImageFromReadCloser draws an image from an io.ReadCloser to the
 // info bar display available on some Elgato Stream Deck models. The
 // ReadCloser is automatically closed after reading.
 func (d *Device) SetInfoBarImageFromReadCloser(r io.ReadCloser) error {
+	if err := d.validateOpen(); err != nil {
+		return err
+	}
+
+	if err := d.validateInfoBar(); err != nil {
+		return err
+	}
+
 	if r == nil {
 		return wrapErr(ErrImageInvalid)
 	}
 	defer r.Close()
-	return d.SetInfoBarImageFromReader(r)
+
+	return d.setInfoBarImageFromReader(r)
 }
 
 // SetInfoBarImageFromFile draws an image from a file to the info bar display
 // available on some Elgato Stream Deck models. The image is loaded, decoded
 // and scaled as needed.
 func (d *Device) SetInfoBarImageFromFile(name string) error {
+	if err := d.validateOpen(); err != nil {
+		return err
+	}
+
+	if err := d.validateInfoBar(); err != nil {
+		return err
+	}
+
 	fp, err := os.Open(name)
 	if err != nil {
 		return wrapErr(err)
 	}
-	return d.SetInfoBarImageFromReadCloser(fp)
+	defer fp.Close()
+
+	return d.setInfoBarImageFromReader(fp)
 }
 
 // SetInfoBarImageFromFS draws an image from a filesystem to the info bar
 // display available on some Elgato Stream Deck models. The image is loaded
 // from a filesystem, decoded and scaled as needed.
 func (d *Device) SetInfoBarImageFromFS(ffs fs.FS, name string) error {
+	if err := d.validateOpen(); err != nil {
+		return err
+	}
+
+	if err := d.validateInfoBar(); err != nil {
+		return err
+	}
+
 	fp, err := ffs.Open(name)
 	if err != nil {
 		return wrapErr(err)
 	}
-	return d.SetInfoBarImageFromReadCloser(fp)
+	defer fp.Close()
+
+	return d.setInfoBarImageFromReader(fp)
 }
 
 // SetInfoBarColor sets a color to an Elgato Stream Deck info bar display
 // available on some Elgato Stream Deck models.
 func (d *Device) SetInfoBarColor(c color.Color) error {
-	if !d.IsOpen() {
-		return wrapErr(ErrDeviceIsClosed)
-	}
-
 	return d.SetInfoBarImage(&imageColor{
 		c: c,
 		b: d.model.infoBarImageRect,
@@ -357,12 +446,14 @@ func (d *Device) GetInfoBarImageRectangle() (image.Rectangle, error) {
 // SetTouchPointColor sets a color to the touch point strip available in some
 // Elgato Stream Deck models.
 func (d *Device) SetTouchPointColor(tp TouchPointID, c color.Color) error {
-	if !d.IsOpen() {
-		return wrapErr(ErrDeviceIsClosed)
+	if err := d.validateOpen(); err != nil {
+		return err
 	}
-	if d.model.touchPointColorSend == nil || d.model.touchPointCount == 0 {
-		return wrapErr(ErrDeviceTouchPointNotSupported)
+
+	if err := d.validateTouchPoint(tp); err != nil {
+		return err
 	}
+
 	return d.model.touchPointColorSend(d.dev, tp, c)
 }
 
