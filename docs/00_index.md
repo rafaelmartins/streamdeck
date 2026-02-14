@@ -12,7 +12,7 @@ The library supports multiple Stream Deck models, each with different capabiliti
 The API design is inspired by the client library for the [octokeyz](@@/p/octokeyz/) open hardware macropad. Being pure Go makes cross-compilation straightforward for restricted environments, such as the MiSTer FPGA Linux-based operating system.
 
 > [!CAUTION]
-> **Disclaimer** This library is not supported or endorsed by Elgato, Corsair, or any related company.
+> **Disclaimer:** This library is not supported or endorsed by Elgato, Corsair, or any related company.
 
 ## Key Highlights
 
