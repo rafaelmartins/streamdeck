@@ -14,7 +14,7 @@ The API design is inspired by the client library for the [octokeyz](@@/p/octokey
 > [!CAUTION]
 > **Disclaimer:** This library is not supported or endorsed by Elgato, Corsair, or any related company.
 
-## Key Highlights
+## Key highlights
 
 - **Pure Go** -- no libusb or hidapi dependency, simplifying cross-compilation
 - **Cross-platform** -- works on Linux, macOS, and Windows
@@ -38,7 +38,7 @@ Stream Deck V2 (`0x006d`) is treated as an alias for MK.2 (`0x0080`) and uses th
 
 Supporting additional models requires hardware access for the library maintainer. If you have the means to help, please [contact the maintainer](https://rafaelmartins.com/).
 
-## Quick start
+## Usage
 
 ```go
 package main
@@ -83,10 +83,10 @@ func main() {
 }
 ```
 
-## Explore Further
+## Explore further
 
-- [Development Guide](10_development-guide.md) -- integration, API overview, and architecture
-- [API Documentation](https://pkg.go.dev/rafaelmartins.com/p/streamdeck) -- complete API reference on pkg.go.dev
-- [Source Code](https://github.com/rafaelmartins/streamdeck) -- GitHub repository
+- [Development guide](10_development-guide.md) -- integration, API overview, and architecture
+- [API documentation](https://pkg.go.dev/rafaelmartins.com/p/streamdeck) -- complete API reference on pkg.go.dev
+- [Source code](https://github.com/rafaelmartins/streamdeck) -- GitHub repository
 - [usbhid](https://pkg.go.dev/rafaelmartins.com/p/usbhid) -- underlying pure Go USB HID library
 - [octokeyz](@@/p/octokeyz/) -- related open hardware macropad project

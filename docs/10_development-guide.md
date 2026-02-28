@@ -19,7 +19,7 @@ Requires Go 1.24 or later.
 | Module | Purpose |
 |--------|---------|
 | `rafaelmartins.com/p/usbhid` | Pure Go USB HID communication |
-| `golang.org/x/image` | BMP encoding for Stream Deck variants that need it |
+| `golang.org/x/image` | BMP encoding and image scaling/transformation |
 
 No C libraries or CGO are required.
 
@@ -206,7 +206,7 @@ device.SetKeyImageFromFS(streamdeck.KEY_3, assets, "assets/icon.png")
 
 #### Info bar display
 
-Available on Stream Deck Neo (248x58 pixels). The same set of image source methods applies, prefixed with `SetInfoBar*` instead of `SetKey*`.
+Available on Stream Deck Neo (248x58 pixels). The same set of image source methods applies, prefixed with `SetInfoBar*` instead of `SetKey*`. Use `GetInfoBarImageRectangle()` to obtain the display geometry.
 
 | Method | Image source |
 |--------|-------------|
