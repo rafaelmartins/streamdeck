@@ -219,9 +219,9 @@ var models = map[uint16]*model{
 			pl := make([]byte, dev.GetFeatureReportLength())
 			pl[0] = 0x06
 			pl[1] = byte(tp - TOUCH_POINT_1 + 8 /* keyCount */)
-			pl[2] = byte(r)
-			pl[3] = byte(g)
-			pl[4] = byte(b)
+			pl[2] = byte(r >> 8)
+			pl[3] = byte(g >> 8)
+			pl[4] = byte(b >> 8)
 			return dev.SetFeatureReport(3, pl)
 		},
 		reset: func(dev *usbhid.Device) error {

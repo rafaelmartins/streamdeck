@@ -57,6 +57,25 @@ func TestGenImage_BMPFormat(t *testing.T) {
 	}
 }
 
+func TestGenImage_BMPFormatRGBA64(t *testing.T) {
+	img := image.NewRGBA64(image.Rect(0, 0, 1, 1))
+	img.SetRGBA64(0, 0, color.RGBA64{R: 0xff00, G: 0x8000, B: 0x0100, A: 0xffff})
+
+	data, err := genImage(img, img.Bounds(), imageFormatBMP, 0)
+	if err != nil {
+		t.Fatalf("genImage failed: %v", err)
+	}
+
+	decoded, err := bmp.Decode(bytes.NewReader(data))
+	if err != nil {
+		t.Fatalf("failed to decode generated BMP: %v", err)
+	}
+
+	if got := decoded.At(0, 0); got != (color.RGBA{R: 0xff, G: 0x80, B: 0x01, A: 0xff}) {
+		t.Fatalf("unexpected converted color: got %v", got)
+	}
+}
+
 func TestGenImage_JPEGFormat(t *testing.T) {
 	img := createTestImage(image.Rect(0, 0, 4, 4))
 	rect := image.Rect(0, 0, 4, 4)

@@ -12,6 +12,7 @@ import (
 	"errors"
 	"fmt"
 	"image"
+	"sync"
 	"time"
 
 	"rafaelmartins.com/p/usbhid"
@@ -50,6 +51,9 @@ var (
 // interact with it, including setting key images, handling input events, and
 // controlling device settings.
 type Device struct {
+	lifecycleMtx    sync.Mutex
+	stateMtx        sync.RWMutex
+	inputMtx        sync.Mutex
 	dev             *usbhid.Device
 	model           *model
 	inputs          []*input
@@ -58,6 +62,7 @@ type Device struct {
 	keyStates       []byte
 	dialStates      []byte
 	listen          chan struct{}
+	listening       bool
 	open            bool
 }
 
@@ -141,11 +146,16 @@ func GetDevice(serialNumber string) (*Device, error) {
 // IsOpen checks if the Elgato Stream Deck device is open and available for
 // usage.
 func (d *Device) IsOpen() bool {
-	return d.open && d.dev.IsOpen()
+	d.stateMtx.RLock()
+	defer d.stateMtx.RUnlock()
+	return d.open
 }
 
 // Open opens the Elgato Stream Deck device for usage.
 func (d *Device) Open() error {
+	d.lifecycleMtx.Lock()
+	defer d.lifecycleMtx.Unlock()
+
 	if d.IsOpen() {
 		return wrapErr(ErrDeviceIsOpen)
 	}
@@ -154,8 +164,10 @@ func (d *Device) Open() error {
 		return wrapErr(err)
 	}
 
+	d.stateMtx.Lock()
 	d.open = true
 	d.listen = make(chan struct{})
+	d.stateMtx.Unlock()
 	return nil
 }
 
@@ -168,25 +180,29 @@ func (d *Device) validateOpen() error {
 
 // Close closes the Elgato Stream Deck device.
 func (d *Device) Close() error {
+	d.lifecycleMtx.Lock()
+	defer d.lifecycleMtx.Unlock()
+
 	if err := d.validateOpen(); err != nil {
 		return err
 	}
 
-	if err := d.closeDisplays(); err != nil {
-		return wrapErr(err)
-	}
+	displayErr := d.closeDisplays()
 
+	d.stateMtx.Lock()
 	if d.listen != nil {
 		close(d.listen)
 		d.listen = nil
 	}
+	d.stateMtx.Unlock()
 
-	if err := d.dev.Close(); err != nil {
-		return err
-	}
+	closeErr := d.dev.Close()
 
-	d.open = false
-	return nil
+	d.stateMtx.Lock()
+	d.open = closeErr != nil
+	d.stateMtx.Unlock()
+
+	return errors.Join(wrapErr(displayErr), wrapErr(closeErr))
 }
 
 func (d *Device) validateKey(key KeyID) error {
@@ -239,6 +255,8 @@ func (d *Device) AddKeyHandler(key KeyID, fn KeyHandler) error {
 		return wrapErr(ErrKeyHandlerInvalid)
 	}
 
+	d.inputMtx.Lock()
+	defer d.inputMtx.Unlock()
 	if d.inputs == nil {
 		d.inputs = newInputs(d, d.model.keyCount, d.model.touchPointCount)
 	}
@@ -263,6 +281,8 @@ func (d *Device) AddTouchPointHandler(tp TouchPointID, fn TouchPointHandler) err
 		return wrapErr(ErrTouchPointHandlerInvalid)
 	}
 
+	d.inputMtx.Lock()
+	defer d.inputMtx.Unlock()
 	if d.inputs == nil {
 		d.inputs = newInputs(d, d.model.keyCount, d.model.touchPointCount)
 	}
@@ -287,6 +307,8 @@ func (d *Device) AddDialSwitchHandler(di DialID, fn DialSwitchHandler) error {
 		return wrapErr(ErrDialHandlerInvalid)
 	}
 
+	d.inputMtx.Lock()
+	defer d.inputMtx.Unlock()
 	if d.dialInputs == nil {
 		d.dialInputs = newDialInputs(d, d.model.dialCount)
 	}
@@ -311,6 +333,8 @@ func (d *Device) AddDialRotateHandler(di DialID, fn DialRotateHandler) error {
 		return wrapErr(ErrDialHandlerInvalid)
 	}
 
+	d.inputMtx.Lock()
+	defer d.inputMtx.Unlock()
 	if d.dialInputs == nil {
 		d.dialInputs = newDialInputs(d, d.model.dialCount)
 	}
@@ -335,6 +359,8 @@ func (d *Device) AddTouchStripTouchHandler(fn TouchStripTouchHandler) error {
 		return wrapErr(ErrTouchStripHandlerInvalid)
 	}
 
+	d.inputMtx.Lock()
+	defer d.inputMtx.Unlock()
 	if d.touchStripInput == nil {
 		d.touchStripInput = newTouchStripInput(d)
 	}
@@ -354,6 +380,8 @@ func (d *Device) AddTouchStripSwipeHandler(fn TouchStripSwipeHandler) error {
 		return wrapErr(ErrTouchStripHandlerInvalid)
 	}
 
+	d.inputMtx.Lock()
+	defer d.inputMtx.Unlock()
 	if d.touchStripInput == nil {
 		d.touchStripInput = newTouchStripInput(d)
 	}
@@ -373,6 +401,20 @@ func (d *Device) Listen(errCh chan error) error {
 		return err
 	}
 
+	d.stateMtx.Lock()
+	if d.listening {
+		d.stateMtx.Unlock()
+		return errors.New("streamdeck: device listener is already running")
+	}
+	d.listening = true
+	stop := d.listen
+	d.stateMtx.Unlock()
+	defer func() {
+		d.stateMtx.Lock()
+		d.listening = false
+		d.stateMtx.Unlock()
+	}()
+
 	if i := int(d.model.keyCount + d.model.touchPointCount); len(d.keyStates) != i {
 		d.keyStates = make([]byte, i)
 	}
@@ -382,24 +424,36 @@ func (d *Device) Listen(errCh chan error) error {
 
 	for {
 		select {
-		case <-d.listen:
+		case <-stop:
 			return nil
 		default:
-			if d.listen == nil {
-				return nil
-			}
 		}
 
 		id, buf, err := d.dev.GetInputReport()
 		if err != nil {
+			select {
+			case <-stop:
+				return nil
+			default:
+			}
 			return wrapErr(err)
 		}
 		if id != 1 {
 			return fmt.Errorf("streamdeck: got unexpected report id: %d", id)
 		}
 
+		if len(buf) == 0 {
+			return errors.New("streamdeck: received empty input report")
+		}
+
 		if buf[0] == 2 && d.model.touchStripImageSend != nil {
-			if d.touchStripInput == nil {
+			if len(buf) < 4 {
+				return fmt.Errorf("streamdeck: short touch strip input report: got %d bytes", len(buf))
+			}
+			d.inputMtx.Lock()
+			touchStripInput := d.touchStripInput
+			d.inputMtx.Unlock()
+			if touchStripInput == nil {
 				continue
 			}
 
@@ -419,7 +473,7 @@ func (d *Device) Listen(errCh chan error) error {
 					continue
 				}
 
-				d.touchStripInput.touch(t, image.Point{
+				touchStripInput.touch(t, image.Point{
 					X: int(buf[6])<<8 | int(buf[5]),
 					Y: int(buf[8])<<8 | int(buf[7]),
 				}, errCh)
@@ -429,7 +483,7 @@ func (d *Device) Listen(errCh chan error) error {
 					continue
 				}
 
-				d.touchStripInput.swipe(image.Point{
+				touchStripInput.swipe(image.Point{
 					X: int(buf[6])<<8 | int(buf[5]),
 					Y: int(buf[8])<<8 | int(buf[7]),
 				}, image.Point{
@@ -441,7 +495,14 @@ func (d *Device) Listen(errCh chan error) error {
 		}
 
 		if buf[0] == 3 && d.model.dialCount > 0 {
+			end := int(d.model.dialStart) + int(d.model.dialCount)
+			if len(buf) < 4 || len(buf) < end {
+				return fmt.Errorf("streamdeck: short dial input report: got %d bytes, need %d", len(buf), max(4, end))
+			}
 			states := buf[d.model.dialStart : d.model.dialStart+d.model.dialCount]
+			d.inputMtx.Lock()
+			dialInputs := append([]*input(nil), d.dialInputs...)
+			d.inputMtx.Unlock()
 			switch buf[3] {
 			case 0:
 				t := time.Now()
@@ -449,11 +510,11 @@ func (d *Device) Listen(errCh chan error) error {
 					if st == d.dialStates[i] {
 						continue
 					}
-					if i >= len(d.dialInputs) {
+					if i >= len(dialInputs) {
 						continue
 					}
 
-					inp := d.dialInputs[i]
+					inp := dialInputs[i]
 					if st > 0 {
 						inp.press(t, errCh)
 					} else {
@@ -465,32 +526,43 @@ func (d *Device) Listen(errCh chan error) error {
 
 			case 1:
 				for i, st := range states {
-					if i >= len(d.dialInputs) {
+					if i >= len(dialInputs) {
 						continue
 					}
 					if st != 0 {
-						d.dialInputs[i].rotate(int8(st), errCh)
+						dialInputs[i].rotate(int8(st), errCh)
 					}
 				}
 			}
 			continue
 		}
 
-		states := buf[d.model.keyStart : d.model.keyStart+d.model.keyCount]
+		keyEnd := int(d.model.keyStart) + int(d.model.keyCount)
+		if len(buf) < keyEnd {
+			return fmt.Errorf("streamdeck: short key input report: got %d bytes, need %d", len(buf), keyEnd)
+		}
+		states := append([]byte(nil), buf[d.model.keyStart:d.model.keyStart+d.model.keyCount]...)
 		if d.model.touchPointCount > 0 {
+			touchEnd := int(d.model.touchPointStart) + int(d.model.touchPointCount)
+			if len(buf) < touchEnd {
+				return fmt.Errorf("streamdeck: short touch point input report: got %d bytes, need %d", len(buf), touchEnd)
+			}
 			states = append(states, buf[d.model.touchPointStart:d.model.touchPointStart+d.model.touchPointCount]...)
 		}
+		d.inputMtx.Lock()
+		inputs := append([]*input(nil), d.inputs...)
+		d.inputMtx.Unlock()
 
 		t := time.Now()
 		for i, st := range states {
 			if st == d.keyStates[i] {
 				continue
 			}
-			if i >= len(d.inputs) {
+			if i >= len(inputs) {
 				continue
 			}
 
-			inp := d.inputs[i]
+			inp := inputs[i]
 			if st > 0 {
 				inp.press(t, errCh)
 			} else {
@@ -566,6 +638,9 @@ func (d *Device) GetFirmwareVersion() (string, error) {
 // Please note that this will close the connection, because this is similar to
 // power cycling the device. This function won't try to reconnect.
 func (d *Device) Reset() error {
+	d.lifecycleMtx.Lock()
+	defer d.lifecycleMtx.Unlock()
+
 	if err := d.validateOpen(); err != nil {
 		return err
 	}
@@ -574,7 +649,19 @@ func (d *Device) Reset() error {
 		return wrapErr(err)
 	}
 
-	return d.dev.Close()
+	d.stateMtx.Lock()
+	if d.listen != nil {
+		close(d.listen)
+		d.listen = nil
+	}
+	d.stateMtx.Unlock()
+
+	closeErr := d.dev.Close()
+
+	d.stateMtx.Lock()
+	d.open = closeErr != nil
+	d.stateMtx.Unlock()
+	return wrapErr(closeErr)
 }
 
 // SetBrightness sets the Elgato Stream Deck device brightness, in percent.

@@ -126,9 +126,9 @@ func genImage(img image.Image, rect image.Rectangle, ifmt imageFormat, transform
 			if ifmt == imageFormatBMP {
 				r, g, b, _ := c.RGBA()
 				c = color.RGBA{
-					R: byte(r),
-					G: byte(g),
-					B: byte(b),
+					R: byte(r >> 8),
+					G: byte(g >> 8),
+					B: byte(b >> 8),
 					A: 0xff,
 				}
 			}
@@ -159,29 +159,35 @@ func imageSend(dev *usbhid.Device, id byte, hdr []byte, imgData []byte, updateCb
 		return errors.New("image update callback not set")
 	}
 
-	var (
-		start uint16
-		page  byte
-		last  byte
-	)
+	reportLength := int(dev.GetOutputReportLength())
+	if reportLength <= len(hdr) {
+		return fmt.Errorf("output report length %d is too small for %d-byte image header", reportLength, len(hdr))
+	}
+
+	start := 0
+	page := 0
+	last := byte(0)
 
 	for last == 0 {
-		end := start + dev.GetOutputReportLength() - uint16(len(hdr))
-		if l := uint16(len(imgData)); end >= l {
-			end = l
+		end := start + reportLength - len(hdr)
+		if end >= len(imgData) {
+			end = len(imgData)
 			last = 1
+		}
+		if page > 255 {
+			return errors.New("image requires more than 256 output reports")
 		}
 
 		to_send := imgData[start:end]
-		updateCb(hdr, page, last, uint16(len(to_send)))
+		updateCb(hdr, byte(page), last, uint16(len(to_send)))
 
 		payload := append(hdr, to_send...)
-		payload = append(payload, make([]byte, dev.GetOutputReportLength()-uint16(len(payload)))...)
+		payload = append(payload, make([]byte, reportLength-len(payload))...)
 		if err := dev.SetOutputReport(id, payload); err != nil {
 			return err
 		}
 
-		start += dev.GetOutputReportLength() - uint16(len(hdr))
+		start += reportLength - len(hdr)
 		page++
 	}
 	return nil

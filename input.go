@@ -51,6 +51,8 @@ func (k *Key) addHandler(h KeyHandler) {
 // KeyHandler.
 func (k *Key) WaitForRelease() time.Duration {
 	<-k.input.channel
+	k.input.mtx.Lock()
+	defer k.input.mtx.Unlock()
 	return k.input.duration
 }
 
@@ -137,6 +139,8 @@ func (tp *TouchPoint) addHandler(h TouchPointHandler) {
 // within a TouchPointHandler.
 func (tp *TouchPoint) WaitForRelease() time.Duration {
 	<-tp.input.channel
+	tp.input.mtx.Lock()
+	defer tp.input.mtx.Unlock()
 	return tp.input.duration
 }
 
@@ -226,6 +230,8 @@ func (d *Dial) addRotateHandler(h DialRotateHandler) {
 // within a DialSwitchHandler.
 func (d *Dial) WaitForRelease() time.Duration {
 	<-d.input.channel
+	d.input.mtx.Lock()
+	defer d.input.mtx.Unlock()
 	return d.input.duration
 }
 
@@ -361,6 +367,7 @@ type input struct {
 	tp         *TouchPoint
 	dial       *Dial
 	touchStrip *touchStrip
+	active     *input
 }
 
 func newInputs(d *Device, numKeys byte, numTouchPoints byte) []*input {
@@ -416,17 +423,20 @@ func (in *input) press(t time.Time, errCh chan error) {
 	in.mtx.Lock()
 	defer in.mtx.Unlock()
 
-	in.channel = make(chan bool)
-	in.pressed = t
-	in.released = time.Time{}
-	in.duration = 0
+	event := &input{
+		device:  in.device,
+		channel: make(chan bool),
+		pressed: t,
+	}
+	in.active = event
 
 	if in.key != nil {
+		key := &Key{id: in.key.id, input: event}
 		for _, h := range in.key.handlers {
-			go func(in *input, hnd KeyHandler) {
-				if err := hnd(in.device, in.key); err != nil {
+			go func(hnd KeyHandler) {
+				if err := hnd(in.device, key); err != nil {
 					e := KeyHandlerError{
-						KeyID: in.key.id,
+						KeyID: key.id,
 						Err:   err,
 					}
 
@@ -439,16 +449,17 @@ func (in *input) press(t time.Time, errCh chan error) {
 						log.Printf("error: %s", e)
 					}
 				}
-			}(in, h)
+			}(h)
 		}
 	}
 
 	if in.tp != nil {
+		tp := &TouchPoint{id: in.tp.id, input: event}
 		for _, h := range in.tp.handlers {
-			go func(in *input, hnd TouchPointHandler) {
-				if err := hnd(in.device, in.tp); err != nil {
+			go func(hnd TouchPointHandler) {
+				if err := hnd(in.device, tp); err != nil {
 					e := TouchPointHandlerError{
-						TouchPointID: in.tp.id,
+						TouchPointID: tp.id,
 						Err:          err,
 					}
 
@@ -461,16 +472,17 @@ func (in *input) press(t time.Time, errCh chan error) {
 						log.Printf("error: %s", e)
 					}
 				}
-			}(in, h)
+			}(h)
 		}
 	}
 
 	if in.dial != nil {
+		dial := &Dial{id: in.dial.id, input: event}
 		for _, h := range in.dial.switchHandlers {
-			go func(in *input, hnd DialSwitchHandler) {
-				if err := hnd(in.device, in.dial); err != nil {
+			go func(hnd DialSwitchHandler) {
+				if err := hnd(in.device, dial); err != nil {
 					e := DialHandlerError{
-						DialID: in.dial.id,
+						DialID: dial.id,
 						Err:    err,
 					}
 
@@ -483,7 +495,7 @@ func (in *input) press(t time.Time, errCh chan error) {
 						log.Printf("error: %s", e)
 					}
 				}
-			}(in, h)
+			}(h)
 		}
 	}
 }
@@ -492,15 +504,18 @@ func (in *input) release(t time.Time) {
 	in.mtx.Lock()
 	defer in.mtx.Unlock()
 
-	// currently released
-	if !in.released.IsZero() {
+	event := in.active
+	if event == nil {
 		return
 	}
+	in.active = nil
 
-	in.released = t
-	in.duration = in.released.Sub(in.pressed)
-	in.pressed = time.Time{}
-	close(in.channel)
+	event.mtx.Lock()
+	event.released = t
+	event.duration = event.released.Sub(event.pressed)
+	event.pressed = time.Time{}
+	close(event.channel)
+	event.mtx.Unlock()
 }
 
 func (in *input) rotate(delta int8, errCh chan error) {
