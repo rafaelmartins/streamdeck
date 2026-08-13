@@ -1,10 +1,10 @@
 module rafaelmartins.com/p/streamdeck
 
-go 1.24
+go 1.25.0
 
 require (
-	golang.org/x/image v0.30.0
-	rafaelmartins.com/p/usbhid v0.0.0-20250616003425-c818f1cb579e
+	golang.org/x/image v0.45.0
+	rafaelmartins.com/p/usbhid v0.0.0-20260811025057-543484740bef
 )
 
-require github.com/ebitengine/purego v0.8.4 // indirect
+require github.com/ebitengine/purego v0.10.2 // indirect

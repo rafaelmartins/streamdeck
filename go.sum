@@ -1,6 +1,6 @@
-github.com/ebitengine/purego v0.8.4 h1:CF7LEKg5FFOsASUj0+QwaXf8Ht6TlFxg09+S9wz0omw=
-github.com/ebitengine/purego v0.8.4/go.mod h1:iIjxzd6CiRiOG0UyXP+V1+jWqUXVjPKLAI0mRfJZTmQ=
-golang.org/x/image v0.30.0 h1:jD5RhkmVAnjqaCUXfbGBrn3lpxbknfN9w2UhHHU+5B4=
-golang.org/x/image v0.30.0/go.mod h1:SAEUTxCCMWSrJcCy/4HwavEsfZZJlYxeHLc6tTiAe/c=
-rafaelmartins.com/p/usbhid v0.0.0-20250616003425-c818f1cb579e h1:Xlg01Rbs6PVG1yOvNEmMjI+edsmua23REsPO+tyhOyU=
-rafaelmartins.com/p/usbhid v0.0.0-20250616003425-c818f1cb579e/go.mod h1:focKssvBxJwZE6GrEZipSBZsUwsFkcc0ECSq/In1Kww=
+github.com/ebitengine/purego v0.10.2 h1:W809HbnvzAxgdm+aOvlSekrM16wGCdT/e76+9tS7gzE=
+github.com/ebitengine/purego v0.10.2/go.mod h1:iIjxzd6CiRiOG0UyXP+V1+jWqUXVjPKLAI0mRfJZTmQ=
+golang.org/x/image v0.45.0 h1:FMb1nTbH5H9vF55SriQHgFw5GnNL9Jg6L25BwXKzhB0=
+golang.org/x/image v0.45.0/go.mod h1:n62x/7RqlwXDvGsSU4u6IUTUf6KghUZ9Bt7cG/T9Fx4=
+rafaelmartins.com/p/usbhid v0.0.0-20260811025057-543484740bef h1:R1IycbWCVegqAyyMyO7/bRKQjYi0aTvFX1kayxwWYko=
+rafaelmartins.com/p/usbhid v0.0.0-20260811025057-543484740bef/go.mod h1:Rta/iJgy+IuDjpHCBFwHKTNDfHI2i2z7HfO/re/sOV8=
